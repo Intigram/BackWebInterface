@@ -104,17 +104,19 @@ def get_matches():
                     elif r.status_code == 429:
                         return "Too many requests. Wait a while before trying again :(", 429
                     else:
+                        print (r)
                         return "Something went wrong when getting a match's timelines :(", 500
                 elif r.status_code == 429:
                     return "Too many requests. Wait a while before trying again :(", 429
                 else:
+                    print (r)
                     return "Something went wrong when getting a match's info :(", 500
                 
             res_data["matches"] = matches
             res_data["matchTimelines"] = matchTimelines
             res_data["predictions"] = predictions
-            with open('data-sample.json', 'w') as f:
-                json.dump(res_data, f, indent=4)
+            # with open('data-sample.json', 'w') as f:
+            #     json.dump(res_data, f, indent=4)
             return json.dumps(res_data), 200
         elif r.status_code == 429:
             print(r.status_code)
@@ -386,9 +388,6 @@ def get_predictions(match_timeline):
         svc = pickle.load(f)
     
     # make predictions
-    # p = np.array(svc.predict(df)) # decision is a voting function
-    # prob = np.exp(p)/np.sum(np.exp(p), axis=0, keepdims=True) # softmax after the voting
-
     prob = np.array(svc.predict_proba(df))
 
     return prob.tolist()
