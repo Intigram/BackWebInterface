@@ -13,9 +13,11 @@ CORS(api)
 
 routes = {
     "api_endpoint": "api.riotgames.com",
+    "nearest_cluster": "europe",        # now that's it's Riot ID, this is the recommendation
     "league": "/lol/league/v4/",
     "match": "/lol/match/v5/matches/",
-    "summoner": "/lol/summoner/v4/summoners/by-name/"
+    "summoner": "/lol/summoner/v4/summoners/by-name/",
+    "account": "/riot/account/v1/accounts/by-riot-id/"
 }
 
 @api.route('/api/test', methods=['POST', 'OPTIONS'])
@@ -40,6 +42,7 @@ def get_matches():
     print(req)
 
     summoner_name   = req["summonerName"]
+    tag_line        = req["tagline"]
     region_short    = req["regionShort"]
     region_long     = req["regionLong"]
     start           = req["startFrom"]
@@ -53,7 +56,8 @@ def get_matches():
     print(f"API Key: {apiKey}")
 
     # first get the player's PUUID
-    loc = f"https://{region_short}.{routes['api_endpoint']}{routes['summoner']}{summoner_name}"
+    # loc = f"https://{region_short}.{routes['api_endpoint']}{routes['summoner']}{summoner_name}"
+    loc = f"https://{routes['nearest_cluster']}.{routes['api_endpoint']}{routes['account']}{summoner_name}/{tag_line}"
     
     # sending get request and saving the response as response object
     # print("Sending request to Riot API to get PUUID")
@@ -132,6 +136,7 @@ def get_matches():
     elif r.status_code == 404:
         return "404 - Not found. You might be looking for a summoner that doesn't exist in the region you specified :(", 403
     else:
+        print (r.content)
         return "Something went wrong :(", 500
 
 
