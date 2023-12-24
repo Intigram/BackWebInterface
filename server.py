@@ -43,7 +43,6 @@ def get_matches():
 
     summoner_name   = req["summonerName"]
     tag_line        = req["tagline"]
-    region_short    = req["regionShort"]
     region_long     = req["regionLong"]
     start           = req["startFrom"]
     apiKey          = request.headers["X-Riot-Token"]
@@ -129,6 +128,96 @@ def get_matches():
             print (r.status_code)
             return "Something went wrong when getting the match list (IDs) :(", 500
     
+    elif r.status_code == 429:
+        return "Too many requests. Wait a while before trying again :(", 429
+    elif r.status_code == 403:
+        return "403 - Unathorized. Your API key might no longer be valid :(", 403
+    elif r.status_code == 404:
+        return "404 - Not found. You might be looking for a summoner that doesn't exist in the region you specified :(", 403
+    else:
+        print (r.content)
+        return "Something went wrong :(", 500
+
+
+@api.route('/api/more', methods=['POST','OPTIONS'])
+def get_more():
+    if request.method == 'OPTIONS':
+        print("CORS set-up")
+        return json.dumps({"Hello":"World"})
+
+    print(">>> Got request with JSON:")
+    req = request.json
+    print(req)
+
+    # summoner_name   = req["summonerName"]
+    puuid           = req["puuid"]
+    region_long     = req["regionLong"]
+    start           = req["startFrom"]
+    apiKey          = request.headers["X-Riot-Token"]
+    res_data        = { "puuid": "",
+                        "matchIds": [],
+                        "matches": [],
+                        "matchTimelines": [],
+                        "predictions": []   }
+    
+    print(f"API Key: {apiKey}")
+    print(f"PUUID: {puuid}")
+
+    # now get the match IDs
+    loc = f"https://{region_long}.{routes['api_endpoint']}{routes['match']}by-puuid/{puuid}/ids?type=ranked&start={start}&count=20"
+    # print(loc)
+    # print("Sending request to Riot API to get match IDs")
+    r = requests.get(url = loc, headers = {"X-Riot-Token": apiKey})
+
+    if r.status_code == 200:
+        print("Got it")
+        data = r.json()
+        res_data["matchIds"] = data
+
+        # finally get the actual matches
+        matches = []
+        matchTimelines = []
+        predictions = []
+        for id in tqdm(res_data["matchIds"]):
+            # print(f"Sending request to Riot API to get match: {id}")
+            loc = f"https://{region_long}.{routes['api_endpoint']}{routes['match']}{id}"
+            r = requests.get(url = loc, headers = {"X-Riot-Token": apiKey})
+            
+            if r.status_code == 200:
+                # print("Got it")
+                data = r.json()
+                matches.append(data["info"])
+
+                # print(f"Sending request to Riot API to get match timeline: {id}")
+                loc = f"https://{region_long}.{routes['api_endpoint']}{routes['match']}{id}/timeline"
+                r = requests.get(url = loc, headers = {"X-Riot-Token": apiKey})
+                
+                if r.status_code == 200:
+                    # print("Got it")
+                    data = r.json()
+                    matchTimelines.append(data["info"])
+                    if matches[-1]["gameMode"] != 'CLASSIC':
+                        predictions.append("Not CLASSIC")
+                    else:
+                        preds = get_predictions(data["info"])
+                        predictions.append(preds)
+                elif r.status_code == 429:
+                    return "Too many requests. Wait a while before trying again :(", 429
+                else:
+                    print (r)
+                    return "Something went wrong when getting a match's timelines :(", 500
+            elif r.status_code == 429:
+                return "Too many requests. Wait a while before trying again :(", 429
+            else:
+                print (r)
+                return "Something went wrong when getting a match's info :(", 500
+            
+        res_data["matches"] = matches
+        res_data["matchTimelines"] = matchTimelines
+        res_data["predictions"] = predictions
+        # with open('data-sample.json', 'w') as f:
+        #     json.dump(res_data, f, indent=4)
+        return json.dumps(res_data), 200
     elif r.status_code == 429:
         return "Too many requests. Wait a while before trying again :(", 429
     elif r.status_code == 403:
