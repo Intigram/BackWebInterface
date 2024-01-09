@@ -1,15 +1,15 @@
-from flask import Flask, json, request, jsonify
-from flask_cors import CORS
+import json
+import os
 import requests
 from tqdm import tqdm
-from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score
-import pickle
-import numpy as np
 import pandas as pd
+import numpy as np
+import pickle
+import boto3
 
-api = Flask(__name__)
-CORS(api)
+s3 = boto3.resource('s3')
+BUCKET_NAME = ''
+KEY_TO_PKL = ''
 
 routes = {
     "api_endpoint": "api.riotgames.com",
@@ -20,32 +20,17 @@ routes = {
     "account": "/riot/account/v1/accounts/by-riot-id/"
 }
 
-@api.route('/api/test', methods=['POST', 'OPTIONS'])
-def get_test():
-    if request.method == 'OPTIONS':
-        print("CORS set-up")
-        return json.dumps({"Hello":"World"})
-    print(">>> Got request:")
-    data = request.json
-    print(data["summonerName"])
-    print(request.headers.get("X-Riot-Token"))
-    return json.dumps({"Hello":"World"})
-
-@api.route('/api/matches', methods=['POST','OPTIONS'])
-def get_matches():
-    if request.method == 'OPTIONS':
-        print("CORS set-up")
-        return json.dumps({"Hello":"World"})
+def matches_handler(event, context):
 
     print(">>> Got request with JSON:")
-    req = request.json
+    req = event
     print(req)
 
     summoner_name   = req["summonerName"]
     tag_line        = req["tagline"]
     region_long     = req["regionLong"]
     start           = req["startFrom"]
-    apiKey          = request.headers["X-Riot-Token"]
+    apiKey          = os.environ.get("X-Riot-Token")
     res_data        = { "puuid": "",
                         "matchIds": [],
                         "matches": [],
@@ -137,97 +122,7 @@ def get_matches():
     else:
         print (r.content)
         return "Something went wrong :(", 500
-
-
-@api.route('/api/more', methods=['POST','OPTIONS'])
-def get_more():
-    if request.method == 'OPTIONS':
-        print("CORS set-up")
-        return json.dumps({"Hello":"World"})
-
-    print(">>> Got request with JSON:")
-    req = request.json
-    print(req)
-
-    # summoner_name   = req["summonerName"]
-    puuid           = req["puuid"]
-    region_long     = req["regionLong"]
-    start           = req["startFrom"]
-    apiKey          = request.headers["X-Riot-Token"]
-    res_data        = { "puuid": "",
-                        "matchIds": [],
-                        "matches": [],
-                        "matchTimelines": [],
-                        "predictions": []   }
     
-    print(f"API Key: {apiKey}")
-    print(f"PUUID: {puuid}")
-
-    # now get the match IDs
-    loc = f"https://{region_long}.{routes['api_endpoint']}{routes['match']}by-puuid/{puuid}/ids?type=ranked&start={start}&count=20"
-    # print(loc)
-    # print("Sending request to Riot API to get match IDs")
-    r = requests.get(url = loc, headers = {"X-Riot-Token": apiKey})
-
-    if r.status_code == 200:
-        print("Got it")
-        data = r.json()
-        res_data["matchIds"] = data
-
-        # finally get the actual matches
-        matches = []
-        matchTimelines = []
-        predictions = []
-        for id in tqdm(res_data["matchIds"]):
-            # print(f"Sending request to Riot API to get match: {id}")
-            loc = f"https://{region_long}.{routes['api_endpoint']}{routes['match']}{id}"
-            r = requests.get(url = loc, headers = {"X-Riot-Token": apiKey})
-            
-            if r.status_code == 200:
-                # print("Got it")
-                data = r.json()
-                matches.append(data["info"])
-
-                # print(f"Sending request to Riot API to get match timeline: {id}")
-                loc = f"https://{region_long}.{routes['api_endpoint']}{routes['match']}{id}/timeline"
-                r = requests.get(url = loc, headers = {"X-Riot-Token": apiKey})
-                
-                if r.status_code == 200:
-                    # print("Got it")
-                    data = r.json()
-                    matchTimelines.append(data["info"])
-                    if matches[-1]["gameMode"] != 'CLASSIC':
-                        predictions.append("Not CLASSIC")
-                    else:
-                        preds = get_predictions(data["info"])
-                        predictions.append(preds)
-                elif r.status_code == 429:
-                    return "Too many requests. Wait a while before trying again :(", 429
-                else:
-                    print (r)
-                    return "Something went wrong when getting a match's timelines :(", 500
-            elif r.status_code == 429:
-                return "Too many requests. Wait a while before trying again :(", 429
-            else:
-                print (r)
-                return "Something went wrong when getting a match's info :(", 500
-            
-        res_data["matches"] = matches
-        res_data["matchTimelines"] = matchTimelines
-        res_data["predictions"] = predictions
-        # with open('data-sample.json', 'w') as f:
-        #     json.dump(res_data, f, indent=4)
-        return json.dumps(res_data), 200
-    elif r.status_code == 429:
-        return "Too many requests. Wait a while before trying again :(", 429
-    elif r.status_code == 403:
-        return "403 - Unathorized. Your API key might no longer be valid :(", 403
-    elif r.status_code == 404:
-        return "404 - Not found. You might be looking for a summoner that doesn't exist in the region you specified :(", 403
-    else:
-        print (r.content)
-        return "Something went wrong :(", 500
-
 
 def get_predictions(match_timeline):
     # creating an empty list to save the data in, and then create the dataframe
@@ -270,8 +165,9 @@ def get_predictions(match_timeline):
     red_got_soul = 0.0
 
     # load the model
-    with open('model.pkl', 'rb') as f:
-        svc = pickle.load(f)
+    # with open('model.pkl', 'rb') as f:
+        # svc = pickle.load(f)
+    svc = pickle.loads(s3.Bucket(BUCKET_NAME).Object(KEY_TO_PKL).get()['Body'].read())
 
     for m in match_timeline["frames"]:
 
@@ -486,7 +382,3 @@ def get_predictions(match_timeline):
     prob = np.array(svc.predict_proba(df))
 
     return prob.tolist()
-
-
-if __name__ == '__main__':
-    api.run(debug=True)
